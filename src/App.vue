@@ -1,70 +1,141 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { DefaultChatTransport } from 'ai'
-import { useChat } from '@ai-sdk/vue'
+import { computed, ref } from 'vue'
 
-const input = ref('')
-const { messages, sendMessage, status, error, stop } = useChat({
-  transport: new DefaultChatTransport({ api: '/api/chat' }),
-})
+type ReviewMode = 'quick' | 'thorough' | 'security' | 'performance'
+type ReviewIssue = { type: string; location: string; problem: string; fix: string; priority: 'high' | 'medium' | 'low' }
+type ReviewResult = { filename: string; language: string; mode: ReviewMode; summary: string; issues: ReviewIssue[]; timestamp: string }
 
-const submit = () => {
-  const text = input.value.trim()
-  if (!text || status.value !== 'ready') return
-  sendMessage({ text })
-  input.value = ''
+const sampleCode = `function processUserData(userData) {
+  // Bug: no null check
+  const email = userData.email.toLowerCase();
+
+  // Performance issue: inefficient search
+  const users = getAllUsers();
+  for (let i = 0; i <= users.length; i++) {
+    if (users[i].email === email) {
+      return users[i];
+    }
+  }
+
+  // Security issue: no input validation
+  const query = \`SELECT * FROM users WHERE email = '\${email}'\`;
+  return database.query(query);
+}`
+
+const modes: { id: ReviewMode; label: string; description: string }[] = [
+  { id: 'quick', label: 'Quick', description: 'Bugs and obvious issues' },
+  { id: 'thorough', label: 'Thorough', description: 'Architecture and quality' },
+  { id: 'security', label: 'Security', description: 'Vulnerabilities and validation' },
+  { id: 'performance', label: 'Performance', description: 'Efficiency and resource use' },
+]
+
+const filename = ref('sample.js')
+const code = ref(sampleCode)
+const mode = ref<ReviewMode>('quick')
+const result = ref<ReviewResult | null>(null)
+const status = ref<'idle' | 'reviewing' | 'complete' | 'error'>('idle')
+const errorMessage = ref('')
+const fileInput = ref<HTMLInputElement | null>(null)
+
+const issueCount = computed(() => result.value?.issues.length ?? 0)
+
+const loadExample = () => {
+  filename.value = 'sample.js'
+  code.value = sampleCode
+  result.value = null
+  status.value = 'idle'
+  errorMessage.value = ''
 }
 
-const textParts = (message: (typeof messages.value)[number]) =>
-  message.parts
-    .filter((part) => part.type === 'text')
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .join('')
+const handleFile = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  filename.value = file.name
+  const reader = new FileReader()
+  reader.onload = () => {
+    code.value = String(reader.result ?? '')
+    result.value = null
+    status.value = 'idle'
+    errorMessage.value = ''
+  }
+  reader.readAsText(file)
+}
+
+const review = async () => {
+  if (!filename.value.trim() || !code.value.trim()) {
+    errorMessage.value = 'Add a filename and source code before reviewing.'
+    status.value = 'error'
+    return
+  }
+
+  status.value = 'reviewing'
+  errorMessage.value = ''
+  try {
+    const response = await fetch('/api/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: filename.value, code: code.value, mode: mode.value }),
+    })
+    const payload = await response.json()
+    if (!response.ok) throw new Error(payload.error ?? 'The review could not be completed.')
+    result.value = payload as ReviewResult
+    status.value = 'complete'
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : 'The review could not be completed.'
+    status.value = 'error'
+  }
+}
 </script>
 
 <template>
   <main class="shell">
     <header class="topbar">
-      <a class="brand" href="/" aria-label="Orbit home">
-        <span class="brand-mark">✦</span>
-        <span>orbit</span>
-      </a>
-      <div class="stack-badge"><span class="status-dot" /> AI SDK · Vue</div>
+      <a class="brand" href="/" aria-label="Orbit home"><span class="brand-mark">✦</span><span>orbit</span></a>
+      <div class="stack-badge"><span class="status-dot" /> AI code reviewer</div>
     </header>
 
     <section class="hero">
-      <p class="eyebrow">A focused starting point</p>
-      <h1>Ideas in.<br /><em>Momentum out.</em></h1>
-      <p class="intro">A small, sharp Vue playground for building with streaming AI.</p>
+      <p class="eyebrow">Strategic review workflows</p>
+      <h1>Find the flaw<br /><em>before production.</em></h1>
+      <p class="intro">Give Orbit a file and a focus. Get specific, actionable feedback powered by the AI SDK.</p>
     </section>
 
-    <section class="chat-card" aria-label="Chat with Orbit">
-      <div class="card-heading">
-        <div>
-          <span class="label">CONVERSATION</span>
-          <h2>Talk it through</h2>
-        </div>
-        <span class="sparkle">✧</span>
+    <section class="workspace" aria-label="Code review workspace">
+      <div class="workspace-header">
+        <div><span class="label">CODE INPUT</span><h2>Review a file</h2></div>
+        <button class="text-button" type="button" @click="loadExample">Load example</button>
       </div>
 
-      <div class="messages" aria-live="polite">
-        <div v-if="messages.length === 0" class="empty-state">
-          <span class="empty-icon">◎</span>
-          <p>Ask for a thought, a plan, or a new perspective.</p>
+      <div class="file-row">
+        <label class="filename-field">Filename<input v-model="filename" placeholder="example.ts" /></label>
+        <input ref="fileInput" class="visually-hidden" type="file" accept=".js,.ts,.jsx,.tsx,.vue,.py,.go,.rs,.java" @change="handleFile" />
+        <button class="upload-button" type="button" @click="fileInput?.click()">Choose file</button>
+      </div>
+      <textarea v-model="code" class="code-editor" spellcheck="false" aria-label="Source code" />
+
+      <div class="review-controls">
+        <div class="mode-list" role="radiogroup" aria-label="Review mode">
+          <button v-for="item in modes" :key="item.id" class="mode-option" :class="{ active: mode === item.id }" type="button" role="radio" :aria-checked="mode === item.id" @click="mode = item.id">
+            <span class="mode-name">{{ item.label }}</span><span>{{ item.description }}</span>
+          </button>
         </div>
-        <article v-for="message in messages" :key="message.id" class="message" :class="message.role">
-          <div class="message-meta">{{ message.role === 'user' ? 'YOU' : 'ORBIT' }}</div>
-          <p>{{ textParts(message) }}</p>
+        <button class="review-button" type="button" :disabled="status === 'reviewing'" @click="review">
+          {{ status === 'reviewing' ? 'Reviewing…' : 'Review code ↗' }}
+        </button>
+      </div>
+    </section>
+
+    <section v-if="status === 'error'" class="notice error" role="alert">{{ errorMessage }}</section>
+    <section v-if="result" class="results" aria-live="polite">
+      <div class="results-header"><div><span class="label">REVIEW RESULT</span><h2>{{ result.filename }} <span class="language">{{ result.language }}</span></h2></div><span class="issue-count">{{ issueCount }} {{ issueCount === 1 ? 'issue' : 'issues' }}</span></div>
+      <p class="summary">{{ result.summary }}</p>
+      <div v-if="result.issues.length" class="issue-list">
+        <article v-for="(issue, index) in result.issues" :key="`${issue.location}-${index}`" class="issue" :class="issue.priority">
+          <div class="issue-top"><span class="priority">{{ issue.priority }}</span><span class="issue-type">{{ issue.type }}</span><span class="issue-location">{{ issue.location }}</span></div>
+          <h3>{{ issue.problem }}</h3><p>{{ issue.fix }}</p>
         </article>
-        <div v-if="status === 'submitted'" class="thinking"><span /> <span /> <span /></div>
       </div>
-
-      <div v-if="error" class="error">Something went wrong. Check your API key and try again.</div>
-      <form class="composer" @submit.prevent="submit">
-        <input v-model="input" :disabled="status !== 'ready'" placeholder="What are you thinking about?" aria-label="Message" />
-        <button v-if="status === 'streaming'" type="button" class="stop" @click="stop">Stop</button>
-        <button v-else type="submit" :disabled="!input.trim() || status !== 'ready'" aria-label="Send message">↗</button>
-      </form>
     </section>
 
     <footer><span>Built with intention</span><a href="https://ai-sdk.dev" target="_blank">ai-sdk.dev ↗</a></footer>
