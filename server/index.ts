@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import express from 'express'
+import { randomUUID } from 'node:crypto'
 import { reviewConfigs } from './review/config.js'
 import { supportedExtensions, detectLanguage } from './review/language.js'
 import { reviewCode } from './review/reviewer.js'
@@ -41,7 +42,8 @@ app.post('/api/review', async (request, response) => {
       return
     }
 
-    const result = await reviewCode(filename.trim(), code, mode as ReviewMode)
+    const sessionId = request.header('x-opencode-session') ?? randomUUID()
+    const result = await reviewCode(filename.trim(), code, mode as ReviewMode, sessionId)
     response.json(result)
   } catch (error) {
     console.error(error)

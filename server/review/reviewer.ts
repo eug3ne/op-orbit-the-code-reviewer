@@ -1,4 +1,4 @@
-import { openai } from '@ai-sdk/openai'
+import { createOpenAI } from '@ai-sdk/openai'
 import { generateObject } from 'ai'
 import { z } from 'zod'
 import { reviewConfigs } from './config.js'
@@ -18,13 +18,27 @@ const reviewSchema = z.object({
   ),
 })
 
-export async function reviewCode(filename: string, code: string, mode: ReviewMode): Promise<ReviewResult> {
+export async function reviewCode(
+  filename: string,
+  code: string,
+  mode: ReviewMode,
+  sessionId: string,
+): Promise<ReviewResult> {
   const language = detectLanguage(filename)
   if (!language) throw new Error('Unsupported file type')
 
   const config = reviewConfigs[mode]
+  const opencode = createOpenAI({
+    apiKey: process.env.OPENCODE_API_KEY,
+    baseURL: process.env.OPENCODE_BASE_URL ?? 'https://opencode.ai/zen/go/v1',
+    headers: {
+      'User-Agent': 'orbit-code-review/1.0',
+      'x-opencode-session': sessionId,
+    },
+  })
+
   const { object } = await generateObject({
-    model: openai(config.model),
+    model: opencode.responses(process.env.OPENCODE_MODEL ?? config.model),
     schema: reviewSchema,
     maxOutputTokens: config.maxOutputTokens,
     system:

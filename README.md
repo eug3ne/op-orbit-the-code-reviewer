@@ -2,10 +2,12 @@
 
 A Vue 3 + Vite code-review workspace powered by the AI SDK.
 
+![Orbit code reviewer preview](./public/orbit-preview.png)
+
 ## Requirements
 
 - Node.js 22+
-- An OpenAI API key
+- An OpenCode Go API key
 
 ## Run locally
 
@@ -13,13 +15,13 @@ A Vue 3 + Vite code-review workspace powered by the AI SDK.
 nvm use
 npm install
 cp .env.example .env
-# add your OPENAI_API_KEY to .env
+# add your OPENCODE_API_KEY to .env
 npm run dev
 ```
 
 Open [http://localhost:5173](http://localhost:5173). The Vite client proxies `/api` requests to the Express server on port 8787.
 
-The review workflow uses `generateObject` with a typed review schema. Review modes and language detection live in `server/review/`, while the Vue client handles file input, code editing, and issue presentation.
+The review workflow uses `generateObject` with a typed review schema. It connects to OpenCode Go through the OpenAI Responses-compatible AI SDK provider. Review modes and language detection live in `server/review/`, while the Vue client handles file input, code editing, and issue presentation.
 
 ## Production build
 
